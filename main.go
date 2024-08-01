@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"eikono.chirpy/internal/database"
+	"github.com/eikonoklastess/chirpy/internal/database"
 )
 
 const (
@@ -134,6 +137,19 @@ func cleanChirp(chirpReq chirp) struct {
 }
 
 func crudChirps(w http.http.ResponseWriter, r *http.Request) {
-	!!!get
-	!!!post
+	r.Method == http.MethodGet {
+		var db = database.DB{}
+		db := database.NewDB("/Users/walidoutaleb/workspace/github.com/eikonoklastes/chirpy/database.json")
+		r
+	}
+	
 }
+
+
+
+
+
+
+
+
+

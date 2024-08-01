@@ -7,6 +7,11 @@ import (
 	"sync"
 )
 
+type Chirp struct {
+	id   int
+	Body string `json:"body"`
+}
+
 type DB struct {
 	path string
 	mux  sync.RWMutex
@@ -40,20 +45,23 @@ func (db *DB) ensure() error {
 	return nil
 }
 
-func (db *DB) CreateChirp(body string) (Chrip, error) {
-	dbStruct, err := db.load()
+func (db *DB) CreateChirp(body string) (Chirp, error) {
+	dbStruct, err := db.loadDB()
 	if err != nil {
 		return Chirp{}, err
 	}
-	id := assignId()
-	dbStruct[id] = body
+	id := assignId()() // clojure every call + 1
+	dbStruct.Chirps[id] = Chirp{
+		id:   id,
+		Body: body,
+	}
 	db.mux.Lock()
-	err := db.write(dbStruct)
+	err2 := db.write(dbStruct)
 	db.mux.Unlock()
-	if err != nil {
+	if err2 != nil {
 		return Chirp{}, err
 	}
-	return dbStruct[id], nil
+	return dbStruct.Chirps[id], nil
 }
 
 func (db *DB) loadDB() (DBStructure, error) {
@@ -82,6 +90,18 @@ func (db *DB) write(dbStruct DBStructure) error {
 		return er
 	}
 	return nil
+}
+
+func (db *DB) GetChirps() ([]Chirp, error) {
+	if dbStruct, err := db.loadDB(); err != nil {
+		return nil, err
+	} else {
+		chirps := []Chirp{}
+		for i := 1; i < len(dbStruct.Chirps); i++ {
+			chirps = append(chirps, dbStruct.Chirps[i])
+		}
+		return chirps, nil
+	}
 }
 
 func assignId() func() int {

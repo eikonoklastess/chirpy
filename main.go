@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -70,37 +72,12 @@ type Chirp struct {
 	Body string `json:"body"`
 }
 
-func handleChirpValidation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST methode is allowed", http.StatusMethodNotAllowed)
-		return
+func handleChirpValidation(c Chirp) (Chirp, error) {
+	if len(c.Body) > 140 {
+		return Chirp{}, errors.New("Chirp too long")
 	}
 
-	type validResp struct {
-		Valid bool `json:"valid"`
-	}
-
-	type errorResp struct {
-		Error string `json:"error"`
-	}
-
-	decoder := json.NewDecoder(r.Body)
-	chirpReq := chirp{}
-	err := decoder.Decode(&chirpReq)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Decode() error: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	if len(chirpReq.Body) > 140 {
-		resp := errorResp{Error: "Chrip is too long"}
-		respondWithJson(w, http.StatusBadRequest, &resp)
-		return
-	}
-
-	cleanedBody := cleanChirp(chirpReq)
-	respondWithJson(w, http.StatusOK, &cleanedBody)
-	return
+	return cleanChirp(c)
 }
 
 func respondWithJson(w http.ResponseWriter, code int, payload interface{}) {
@@ -136,20 +113,36 @@ func cleanChirp(chirpReq chirp) struct {
 	return clean
 }
 
-func crudChirps(w http.http.ResponseWriter, r *http.Request) {
-	r.Method == http.MethodGet {
-		var db = database.DB{}
-		db := database.NewDB("/Users/walidoutaleb/workspace/github.com/eikonoklastes/chirpy/database.json")
-		r
+func crudChirps(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		db, err := database.NewDB("/Users/walidoutaleb/workspace/github.com/eikonoklastes/chirpy/database.json")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		chirps, err := db.GetChirps()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error: %v", err), http.StatusInternalServerError)
+		}
+		respondWithJson(w, http.StatusOK, &chirps)
+	} else if r.Method == http.MethodPost {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		defer r.Body.Close()
+		chirpBody := Chirp{}
+		erro := json.Unmarshal(body, &chirpBody)
+		if erro != nil {
+			http.Error(w, erro.Error(), http.StatusInternalServerError)
+		}
+		validChirp, err := handleChirpValidation(chirpBody)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		chirp, err := database.CreateChirp(validChirp)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		respondWithJson(w, http.StatusCreated, &chirp)
 	}
-	
 }
-
-
-
-
-
-
-
-
-

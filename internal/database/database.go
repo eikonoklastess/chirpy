@@ -7,108 +7,182 @@ import (
 	"sync"
 )
 
-type Chirp struct {
-	id   int
-	Body string `json:"body"`
-}
-
 type DB struct {
 	path string
-	mux  sync.RWMutex
+	mu   *sync.RWMutex
 }
 
 type DBStructure struct {
 	Chirps map[int]Chirp `json:"chirps"`
+	Users  map[int]User  `json:"users"`
+}
+
+type User struct {
+	ID             int    `json:"id"`
+	Email          string `json:"email"`
+	HashedPassword []byte `json:"hashedPassword"`
+}
+
+type Chirp struct {
+	ID   int    `json:"id"`
+	Body string `json:"body"`
 }
 
 func NewDB(path string) (*DB, error) {
-	db := DB{
+	db := &DB{
 		path: path,
+		mu:   &sync.RWMutex{},
 	}
-	err := db.ensure()
-	if err != nil {
-		return &DB{}, err
-	}
-	return &db, nil
-}
-
-func (db *DB) ensure() error {
-	db.mux.RLock()
-	defer db.mux.RUnlock()
-	if _, err := os.ReadFile(db.path); err == nil {
-		return nil
-	}
-	err := os.WriteFile(db.path, nil, 0666) //file mode: permission to read write for everybody
-	if err != nil {
-		return errors.New("no database found and failed to create one")
-	}
-	return nil
+	err := db.ensureDB()
+	return db, err
 }
 
 func (db *DB) CreateChirp(body string) (Chirp, error) {
-	dbStruct, err := db.loadDB()
+	dbStructure, err := db.loadDB()
 	if err != nil {
 		return Chirp{}, err
 	}
-	id := assignId()() // clojure every call + 1
-	dbStruct.Chirps[id] = Chirp{
-		id:   id,
+
+	id := len(dbStructure.Chirps) + 1
+	chirp := Chirp{
+		ID:   id,
 		Body: body,
 	}
-	db.mux.Lock()
-	err2 := db.write(dbStruct)
-	db.mux.Unlock()
-	if err2 != nil {
+	dbStructure.Chirps[id] = chirp
+
+	err = db.writeDB(dbStructure)
+	if err != nil {
 		return Chirp{}, err
 	}
-	return dbStruct.Chirps[id], nil
+
+	return chirp, nil
 }
 
-func (db *DB) loadDB() (DBStructure, error) {
-	dbStruct := DBStructure{}
-	db.mux.RLock()
-	defer db.mux.RUnlock()
-
-	if dat, err := os.ReadFile(db.path); err != nil {
-		return DBStructure{}, err
-	} else if err := json.Unmarshal(dat, &dbStruct); err != nil {
-		return DBStructure{}, err
-	} else {
-		return dbStruct, nil
-	}
-}
-
-func (db *DB) write(dbStruct DBStructure) error {
-	dat, err := json.Marshal(dbStruct)
+func (db *DB) CreateUser(email string, hashedPassword []byte) (User, error) {
+	dbStructure, err := db.loadDB()
 	if err != nil {
-		return err
+		return User{}, err
 	}
-	db.mux.Lock()
-	defer db.mux.Unlock()
-	er := os.WriteFile(db.path, dat, 0666)
-	if er != nil {
-		return er
+	if !dbStructure.uniqueEmail(email) {
+		return User{}, errors.New("an account with this email already exist")
 	}
-	return nil
+
+	id := len(dbStructure.Users) + 1
+	user := User{
+		ID:             id,
+		Email:          email,
+		HashedPassword: hashedPassword,
+	}
+	dbStructure.Users[id] = user
+
+	err = db.writeDB(dbStructure)
+	if err != nil {
+		return User{}, err
+	}
+
+	return user, nil
+}
+
+func (db *DB) EmailGetUser(email string) (User, error) {
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return User{}, err
+	}
+	for _, user := range dbStructure.Users {
+		if email == user.Email {
+			return user, nil
+		}
+	}
+	return User{}, errors.New("user not found")
+}
+
+func (dbs *DBStructure) uniqueEmail(email string) bool {
+	for _, user := range dbs.Users {
+		if user.Email == email {
+			return false
+		}
+	}
+	return true
 }
 
 func (db *DB) GetChirps() ([]Chirp, error) {
-	if dbStruct, err := db.loadDB(); err != nil {
+	dbStructure, err := db.loadDB()
+	if err != nil {
 		return nil, err
-	} else {
-		chirps := []Chirp{}
-		for i := 1; i < len(dbStruct.Chirps); i++ {
-			chirps = append(chirps, dbStruct.Chirps[i])
-		}
-		return chirps, nil
 	}
+
+	chirps := make([]Chirp, 0, len(dbStructure.Chirps))
+	for _, chirp := range dbStructure.Chirps {
+		chirps = append(chirps, chirp)
+	}
+
+	return chirps, nil
 }
 
-func assignId() func() int {
-	counter := 0
-
-	return func() int {
-		counter++
-		return counter
+func (db *DB) GetChirp(chirpID int) (Chirp, error) {
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return Chirp{}, err
 	}
+
+	chirps := make([]Chirp, 0, len(dbStructure.Chirps))
+	for _, chirp := range dbStructure.Chirps {
+		chirps = append(chirps, chirp)
+	}
+
+	for _, chirp := range chirps {
+		if chirp.ID == chirpID {
+			return chirp, nil
+		}
+	}
+	return Chirp{}, errors.New("chirp not found in database")
+}
+
+func (db *DB) createDB() error {
+	dbStructure := DBStructure{
+		Chirps: map[int]Chirp{},
+		Users:  map[int]User{},
+	}
+	return db.writeDB(dbStructure)
+}
+
+func (db *DB) ensureDB() error {
+	_, err := os.ReadFile(db.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return db.createDB()
+	}
+	return err
+}
+
+func (db *DB) loadDB() (DBStructure, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	dbStructure := DBStructure{}
+	dat, err := os.ReadFile(db.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return dbStructure, err
+	}
+	err = json.Unmarshal(dat, &dbStructure)
+	if err != nil {
+		return dbStructure, err
+	}
+
+	return dbStructure, nil
+}
+
+func (db *DB) writeDB(dbStructure DBStructure) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	dat, err := json.Marshal(dbStructure)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(db.path, dat, 0600)
+	if err != nil {
+		return err
+	}
+	return nil
 }

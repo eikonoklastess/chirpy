@@ -3,18 +3,24 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"eikono.chirpy/internal/database"
+	"github.com/joho/godotenv"
 )
 
 type apiConfig struct {
 	fileserverHits int
 	DB             *database.DB
+	jwtSecret      string
 }
 
 func main() {
 	const filepathRoot = "."
 	const port = "8080"
+
+	godotenv.Load()
+	jwtSecret := os.Getenv("JWT_SECRET")
 
 	db, err := database.NewDB("database.json")
 	if err != nil {
@@ -24,6 +30,7 @@ func main() {
 	apiCfg := apiConfig{
 		fileserverHits: 0,
 		DB:             db,
+		jwtSecret:      jwtSecret,
 	}
 
 	mux := http.NewServeMux()
@@ -37,6 +44,7 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerSingleChirpRetrieve)
 	mux.HandleFunc("POST /api/users", apiCfg.handerUsersCreate)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
+	mux.HandleFunc("PUT /api/users", apiCfg.handlerUserUpdate)
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 

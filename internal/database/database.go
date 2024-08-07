@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type DB struct {
@@ -81,6 +83,49 @@ func (db *DB) CreateUser(email string, hashedPassword []byte) (User, error) {
 	}
 
 	return user, nil
+}
+
+func (db *DB) UpdateUser(id int, newEmail, newPass string) error {
+	user, err := db.idGetUser(id)
+	if err != nil {
+		return err
+	}
+
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return err
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPass), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	dbStructure.Users[user.ID] = User{
+		ID:             user.ID,
+		Email:          newEmail,
+		HashedPassword: hashedPassword,
+	}
+
+	err = db.writeDB(dbStructure)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (db *DB) idGetUser(id int) (User, error) {
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return User{}, err
+	}
+	for _, user := range dbStructure.Users {
+		if id == user.ID {
+			return user, nil
+		}
+	}
+	return User{}, errors.New("user not found")
 }
 
 func (db *DB) EmailGetUser(email string) (User, error) {
